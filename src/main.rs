@@ -1,6 +1,13 @@
-use std::{collections::HashMap, fmt, fs::File, io::Read};
-
+use bitvec::prelude::*;
 use itertools::Itertools;
+use std::{collections::HashMap, fmt, fs::File, io::{BufWriter, Read}, path::Path};
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize, Debug)]
+struct HuffmanData {
+    dictionary: HashMap<String, char>,
+    message: BitVec,
+}
 
 struct Node {
     ch: Option<char>,
@@ -19,7 +26,6 @@ impl Node {
     }
 
     fn combine(l_node: Node, r_node: Node) -> Node {
-        println!("{:?} {:?}", l_node.ch, r_node.ch);
         Node {
             ch: None,
             freq: l_node.freq + r_node.freq,
@@ -28,10 +34,9 @@ impl Node {
         }
     }
 
-    fn assign_codes(node: Node) -> HashMap<char, String>{
+    fn assign_codes(node: Node) -> HashMap<char, String> {
         let mut map: HashMap<char, String> = HashMap::new();
         Self::recursive_assign_codes(node, "".to_owned(), &mut map);
-        println!("{:#?}", map);
         return map;
     }
 
@@ -59,16 +64,45 @@ impl fmt::Debug for Node {
     }
 }
 
-fn dictionary_encode(dict : HashMap<char, String>, message: String)-> String{
-    message.chars().map(|x|  dict.get(&x).unwrap()).join("")
+fn encode_as_bits(dict: &HashMap<char, String>, message: &String) -> BitVec {
+    let mut bv: BitVec = bitvec!();
+    for c in message.chars() {
+        let code = dict.get(&c).unwrap();
+        for binary in code.chars() {
+            match binary {
+                '0' => bv.push(false),
+                '1' => bv.push(true),
+                _ => panic!("Encoding should have only 0's and 1's"),
+            }
+        }
+    }
+
+    return bv;
 }
 
-fn huffman(mut file: File) {
+fn decode_bits(decode_dict: HashMap<String, char>, bits: BitVec) -> String {
+    let mut result : String = String::new();
+    let mut current = String::new();
+    
+    for b in bits {
+        if b {
+            current += "1"
+        } else {
+            current += "0"
+        }
+        if let Some(ch) = decode_dict.get(&current) {
+            result.push(*ch);
+            current.clear();
+        }
+    }
+    return result;
+}
+
+fn huffman(mut file: File) -> HuffmanData {
     let mut contents = String::new();
     file.read_to_string(&mut contents).unwrap();
 
     let letter_freqs = contents.chars().counts();
-    println!("{:?}", &letter_freqs);
     let mut nodes = letter_freqs
         .into_iter()
         .map(|(k, v)| Node::new(Some(k), v))
@@ -78,7 +112,7 @@ fn huffman(mut file: File) {
         nodes.sort_unstable_by(|a, b| b.freq.cmp(&a.freq));
         let a = nodes.pop().unwrap();
         let b = nodes.pop().unwrap();
-        let comb = if a.freq >= b.freq {
+        let comb = if a.freq <= b.freq {
             Node::combine(a, b)
         } else {
             Node::combine(b, a)
@@ -87,12 +121,20 @@ fn huffman(mut file: File) {
     }
 
     let dict = Node::assign_codes(nodes.pop().unwrap());
-    let encoded_string = dictionary_encode(dict, contents);
-    println!("{}", encoded_string);
+    let encoded_bits = encode_as_bits(&dict, &contents);
+    let decode_dict: HashMap<String, char> = dict.into_iter().map(|(k, v)| (v, k)).collect();
+
+    assert_eq!(decode_bits(decode_dict.clone(), encoded_bits.clone()), contents.clone());
+
+    return HuffmanData { dictionary: decode_dict, message: encoded_bits }
+
 }
 
 fn main() {
-    let file = File::open("data/az.txt").expect("Could not open file");
-    // let metadata = file.metadata().expect("Can not read metadata");
-    huffman(file);
+    let path = Path::new("data").join("romeo-juliet.txt") ;
+    let file = File::open(path).expect("Could not open file");
+    let metadata = file.metadata().expect("Can not read metadata");
+    let huffman_data: HuffmanData = huffman(file);
+    let save_path = Path::new("./compressed-data/").join("romeo-juliet.txt");
+    let save_file = File::create(save_path).unwrap();
 }
