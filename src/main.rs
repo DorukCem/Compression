@@ -1,23 +1,26 @@
-use bitvec::prelude::*;
-use itertools::Itertools;
-use std::{collections::HashMap, fmt, fs::File, io::{BufWriter, Read}, path::Path};
-use serde::{Serialize, Deserialize};
+use std::{collections::HashMap, fs::File, io::{self, Read, Write}, path::Path, u128};
 
-#[derive(Serialize, Deserialize, Debug)]
-struct HuffmanData {
-    dictionary: HashMap<String, char>,
-    message: BitVec,
+use bitvec::{order::Lsb0, view::BitView};
+use itertools::Itertools;
+
+fn main() {
+    let file_name = "az.txt";
+    let path = Path::new("data").join(file_name);
+    let file = File::open(path).expect("Could not open file");
+    let metadata = file.metadata().expect("Can not read metadata");
+    huffman(file);
 }
 
-struct Node {
+struct HuffmanNode {
     ch: Option<char>,
     freq: usize,
-    left: Option<Box<Node>>,
-    right: Option<Box<Node>>,
+    left: Option<Box<HuffmanNode>>,
+    right: Option<Box<HuffmanNode>>,
 }
-impl Node {
+
+impl HuffmanNode {
     fn new(ch: Option<char>, freq: usize) -> Self {
-        Node {
+        HuffmanNode {
             ch: ch,
             freq: freq,
             left: None,
@@ -25,87 +28,62 @@ impl Node {
         }
     }
 
-    fn combine(l_node: Node, r_node: Node) -> Node {
-        Node {
+    fn combine(l_node: HuffmanNode, r_node: HuffmanNode) -> HuffmanNode {
+        HuffmanNode {
             ch: None,
             freq: l_node.freq + r_node.freq,
             left: Some(Box::new(l_node)),
             right: Some(Box::new(r_node)),
         }
     }
-
-    fn assign_codes(node: Node) -> HashMap<char, String> {
-        let mut map: HashMap<char, String> = HashMap::new();
-        Self::recursive_assign_codes(node, "".to_owned(), &mut map);
-        return map;
-    }
-
-    fn recursive_assign_codes(node: Node, current: String, map: &mut HashMap<char, String>) {
-        if let Some(ch) = node.ch {
-            map.insert(ch, current);
-        } else {
-            if let Some(left) = node.left {
-                Self::recursive_assign_codes(*left, current.clone() + "0", map);
-            }
-            if let Some(right) = node.right {
-                Self::recursive_assign_codes(*right, current.clone() + "1", map);
-            }
-        }
-    }
 }
 
-impl fmt::Debug for Node {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "ch: {:#?}, freq: {}, left: {:#?}, right: {:#?}",
-            self.ch, self.freq, self.left, self.right
-        )
-    }
+fn print_codes(dict : HashMap<char, u64>) {
+    for (k,v) in dict.iter(){
+        print!("{}: {:b}   ", k, v);
+    } 
+    io::stdout().flush().unwrap();
 }
 
-fn encode_as_bits(dict: &HashMap<char, String>, message: &String) -> BitVec {
-    let mut bv: BitVec = bitvec!();
-    for c in message.chars() {
-        let code = dict.get(&c).unwrap();
-        for binary in code.chars() {
-            match binary {
-                '0' => bv.push(false),
-                '1' => bv.push(true),
-                _ => panic!("Encoding should have only 0's and 1's"),
-            }
-        }
-    }
-
-    return bv;
-}
-
-fn decode_bits(decode_dict: HashMap<String, char>, bits: BitVec) -> String {
-    let mut result : String = String::new();
-    let mut current = String::new();
-    
-    for b in bits {
-        if b {
-            current += "1"
-        } else {
-            current += "0"
-        }
-        if let Some(ch) = decode_dict.get(&current) {
-            result.push(*ch);
-            current.clear();
-        }
-    }
-    return result;
-}
-
-fn huffman(mut file: File) -> HuffmanData {
+fn huffman(mut file: File) {
     let mut contents = String::new();
     file.read_to_string(&mut contents).unwrap();
 
     let letter_freqs = contents.chars().counts();
+
+    let tree: HuffmanNode = create_tree(letter_freqs);
+    let dict = assign_codes(tree);
+    print_codes(dict);
+    // let encoded_message = encode_message(contents, &dict);
+    // for byte in encoded_message {
+    //     println!("{:#010b}",  byte);
+    // }
+}
+
+
+fn assign_codes(tree: HuffmanNode) -> HashMap<char, u64> {
+    let mut map = HashMap::new();
+    recursive_assign_codes(tree, 0, &mut map);
+    return map;
+}
+
+fn recursive_assign_codes(node: HuffmanNode, current: u64, map: &mut HashMap<char, u64>) {
+    if let Some(ch) = node.ch {
+        map.insert(ch, current);
+    } else {
+        if let Some(left) = node.left {
+            recursive_assign_codes(*left, current << 1 , map);
+        }
+        if let Some(right) = node.right {
+            recursive_assign_codes(*right,  (current << 1) | 1, map);
+        }
+    }
+}
+
+fn create_tree(letter_freqs: std::collections::HashMap<char, usize>) -> HuffmanNode {
     let mut nodes = letter_freqs
         .into_iter()
-        .map(|(k, v)| Node::new(Some(k), v))
+        .map(|(k, v)| HuffmanNode::new(Some(k), v))
         .collect_vec();
 
     while nodes.len() > 1 {
@@ -113,28 +91,12 @@ fn huffman(mut file: File) -> HuffmanData {
         let a = nodes.pop().unwrap();
         let b = nodes.pop().unwrap();
         let comb = if a.freq <= b.freq {
-            Node::combine(a, b)
+            HuffmanNode::combine(a, b)
         } else {
-            Node::combine(b, a)
+            HuffmanNode::combine(b, a)
         };
         nodes.push(comb);
     }
 
-    let dict = Node::assign_codes(nodes.pop().unwrap());
-    let encoded_bits = encode_as_bits(&dict, &contents);
-    let decode_dict: HashMap<String, char> = dict.into_iter().map(|(k, v)| (v, k)).collect();
-
-    assert_eq!(decode_bits(decode_dict.clone(), encoded_bits.clone()), contents.clone());
-
-    return HuffmanData { dictionary: decode_dict, message: encoded_bits }
-
-}
-
-fn main() {
-    let path = Path::new("data").join("romeo-juliet.txt") ;
-    let file = File::open(path).expect("Could not open file");
-    let metadata = file.metadata().expect("Can not read metadata");
-    let huffman_data: HuffmanData = huffman(file);
-    let save_path = Path::new("./compressed-data/").join("romeo-juliet.txt");
-    let save_file = File::create(save_path).unwrap();
+    return nodes.pop().unwrap();
 }
