@@ -1,4 +1,10 @@
-use std::{collections::HashMap, fs::File, io::{self, Read, Write}, path::Path, u128};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{self, Read, Write},
+    path::Path,
+    u128,
+};
 
 use bitvec::{order::Lsb0, view::BitView};
 use itertools::Itertools;
@@ -38,10 +44,10 @@ impl HuffmanNode {
     }
 }
 
-fn print_codes(dict : HashMap<char, u64>) {
-    for (k,v) in dict.iter(){
+fn print_codes(dict: HashMap<char, u64>) {
+    for (k, v) in dict.iter() {
         print!("{}: {:b}   ", k, v);
-    } 
+    }
     io::stdout().flush().unwrap();
 }
 
@@ -60,7 +66,6 @@ fn huffman(mut file: File) {
     // }
 }
 
-
 fn assign_codes(tree: HuffmanNode) -> HashMap<char, u64> {
     let mut map = HashMap::new();
     recursive_assign_codes(tree, 0, &mut map);
@@ -72,10 +77,10 @@ fn recursive_assign_codes(node: HuffmanNode, current: u64, map: &mut HashMap<cha
         map.insert(ch, current);
     } else {
         if let Some(left) = node.left {
-            recursive_assign_codes(*left, current << 1 , map);
+            recursive_assign_codes(*left, current << 1, map);
         }
         if let Some(right) = node.right {
-            recursive_assign_codes(*right,  (current << 1) | 1, map);
+            recursive_assign_codes(*right, (current << 1) | 1, map);
         }
     }
 }
@@ -99,4 +104,40 @@ fn create_tree(letter_freqs: std::collections::HashMap<char, usize>) -> HuffmanN
     }
 
     return nodes.pop().unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_assign_codes() {
+        let freqs = HashMap::from([
+            ('E', 120),
+            ('D', 42),
+            ('L', 42),
+            ('U', 37),
+            ('C', 32),
+            ('M', 24),
+            ('K', 7),
+            ('Z', 2),
+        ]);
+
+        let tree: HuffmanNode = create_tree(freqs.clone());
+        let dict = assign_codes(tree);
+
+        let expected = HashMap::from([
+            ('E', 0b0),
+            ('D', 0b101),
+            ('L', 0b110),
+            ('U', 0b100),
+            ('C', 0b1110),
+            ('M', 0b11111),
+            ('K', 0b111101),
+            ('Z', 0b111100),
+        ]);
+
+        assert_eq!(expected, dict)
+
+    }
 }
