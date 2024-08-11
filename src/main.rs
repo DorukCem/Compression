@@ -1,9 +1,5 @@
 use std::{
-    collections::HashMap,
-    fs::File,
-    io::{self, Read, Write},
-    path::Path,
-    u128,
+    collections::HashMap, env::current_exe, fs::File, io::{self, Read, Write}, path::Path, u128
 };
 
 use bitvec::{order::Lsb0, view::BitView};
@@ -44,7 +40,7 @@ impl HuffmanNode {
     }
 }
 
-fn print_codes(dict: HashMap<char, u64>) {
+fn print_codes(dict: &HashMap<char, u64>) {
     for (k, v) in dict.iter() {
         print!("{}: {:b}   ", k, v);
     }
@@ -59,11 +55,47 @@ fn huffman(mut file: File) {
 
     let tree: HuffmanNode = create_tree(letter_freqs);
     let dict = assign_codes(tree);
-    print_codes(dict);
-    // let encoded_message = encode_message(contents, &dict);
-    // for byte in encoded_message {
-    //     println!("{:#010b}",  byte);
-    // }
+    print_codes(&dict);
+    let (encoded_message, code_count) = encode_message(contents, &dict);
+    let encoded_table = encode_table(&dict);
+}
+
+fn encode_table(dict: &HashMap<char, u64>) -> Vec<u8> {
+    todo!()
+}
+
+fn encode_message(contents: String, dict: &HashMap<char, u64>) -> (Vec<u8>, u128) {
+    let mut bytes = Vec::new();
+    let mut current_byte: u8 = 0;
+    let mut idx = 0;
+    let mut code_count = 0u128;
+
+    for letter in contents.chars() {
+        let code = dict.get(&letter).unwrap();
+        let code_len = 64 - code.leading_zeros() - 1;
+        code_count += 1;
+
+        for i in 0..=code_len {
+            let most_signficant_digit = 1 << code_len - i;
+            let left_bit = ((code & most_signficant_digit) > 0) as u8;
+            current_byte = (current_byte << 1) | left_bit;
+            // println!("code: {:b} current byte: {:08b}  left bit: {:b}", code , current_byte, left_bit);
+
+            idx += 1;
+            if idx == 8 {
+                idx = 0;
+                bytes.push(current_byte);
+                current_byte = 0;
+            }
+        }
+    }
+
+    if current_byte > 0 {
+        current_byte = current_byte << (8-idx);
+        bytes.push(current_byte);
+    }
+
+    return (bytes, code_count);
 }
 
 fn assign_codes(tree: HuffmanNode) -> HashMap<char, u64> {
@@ -138,6 +170,29 @@ mod tests {
         ]);
 
         assert_eq!(expected, dict)
+    }
 
+    #[test]
+    fn test_encode() {
+        let codes = HashMap::from([
+            ('E', 0b0),
+            ('D', 0b101),
+            ('L', 0b110),
+            ('U', 0b100),
+            ('C', 0b1110),
+            ('M', 0b11111),
+            ('K', 0b111101),
+            ('Z', 0b111100),
+        ]);
+
+        let message = "LUCKDUCKD".to_owned();
+        let (encoded_message, count) = encode_message(message, &codes);
+        println!("{count}");
+        for byte in encoded_message.iter() {
+            println!("{:#010b}", byte)
+        }
+        let expected = Vec::from([0b110_100_11, 0b10_111101_, 0b101_100_11, 0b10_111101, 0b101_00000]);
+
+        assert_eq!(encoded_message, expected)
     }
 }
